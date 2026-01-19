@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  mysql_db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: gfs_metadata
+    ports:
+      - "3306:3306"
+
+  master:
+    build: .
+    command: python src/master.py
+    ports:
+      - "50051:50051"
+    depends_on:
+      - mysql_db
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  chunkserver_1:
+    build: .
+    command: python src/chunkserver.py
+    environment:
+      - MY_IP=chunkserver_1:50051
+    depends_on:
+      - master
+
+  chunkserver_2:
+    build: .
+    command: python src/chunkserver.py
+    environment:
+      - MY_IP=chunkserver_2:50051
+    depends_on:
+      - master
+
+  chunkserver_3:
+    build: .
+    command: python src/chunkserver.py
+    environment:
+      - MY_IP=chunkserver_3:50051
+    depends_on:
+      - master

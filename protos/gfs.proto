@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package gfs;
+
+service GfsService {
+    // Master handles metadata requests; Servers handle data IO
+    rpc RegisterGfs (GfsRequest) returns (RegistrationResponse) {}
+    
+    // Heartbeat for fault detection
+    rpc Heartbeat (Empty) returns (Empty) {}
+}
+
+message Empty {}
+
+message GfsRequest {
+    // 1:ReadMaster, 2:ReadServer, 3:WriteMaster, 4:PushData, 5:CommitPrimary
+    int32 type = 1; 
+    string filename = 2;
+    optional int32 offset = 3;
+    optional string data = 4;
+    optional int32 writeId = 5
+}
+
+message RegistrationResponse {
+    int32 type = 1;
+    repeated string chunkServers = 2; // List of replica IPs
+    optional string data = 3;         // For read responses
+    optional string primary = 4;      // The lease holder for writes
+    optional int32 writeId = 5
+}
