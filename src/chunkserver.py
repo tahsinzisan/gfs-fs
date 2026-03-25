@@ -12,7 +12,7 @@ class ChunkServer(gfs_pb2_grpc.GfsServiceServicer):
         self.root_dir = "/tmp/gfs_data"
         if not os.path.exists(self.root_dir):
             os.makedirs(self.root_dir)
-        self.pending_writes = {} 
+        self.pending_writes = {}
         self.writeQueue = deque()
         self.lock = threading.Lock() # Mutex for race conditions
         self.chunkList = defaultdict(list)
@@ -22,7 +22,7 @@ class ChunkServer(gfs_pb2_grpc.GfsServiceServicer):
 
         # Background Heartbeat Thread
         threading.Thread(target=self.send_heartbeat, daemon=True).start()
-        threading.Thread(target=self.commit_write, daemon=True).start())
+        threading.Thread(target=self.commit_write, daemon=True).start()
 
     def send_heartbeat(self):
         while True:
@@ -36,20 +36,20 @@ class ChunkServer(gfs_pb2_grpc.GfsServiceServicer):
 
     def RegisterGfs(self, request, context):
         # 1. READ
-        if request.type == 2: 
+        if request.type == 2:
             return self.read_chunk(request.filename, request.offset)
-            
+
         # 2. PUSH DATA (Buffer data before commit)
         if request.type == 4:
             with self.lock:
                 self.pending_writes[(request.filename, request.writeId)] = request.data
             return gfs_pb2.RegistrationResponse(type=20)
-            
+
         # 3. COMMIT (Primary tells replicas to save)
         if request.type == 5:
             self.writeQueue.append([request.filename, request.writeId])
-            return self.commit_write(request.filename)
-            
+            return gfs_pb2.RegistrationResponse(type=20)
+
         # 4. INTERNAL COMMIT (Secondary saves data)
         if request.type == 10:
             data = self.pending_writes[(request.filename, request.writeId)]
@@ -60,14 +60,14 @@ class ChunkServer(gfs_pb2_grpc.GfsServiceServicer):
     def read_chunk(self, filepath, offset):
         i = 0
         chunkList = self.chunkList[filepath]
-        while i<len(chunkList) and chunkList[i]<offset:
-            i+=1
-        currOffset = offset - chunkList[i-1] if i>=0 else currOffset
+        while i < len(chunkList) and chunkList[i] < offset:
+            i += 1
+        currOffset = offset - chunkList[i - 1] if i > 0 else offset
 
         try:
-            with open(f'{filepath}i.txt', 'r') as f:
-                f.seek(offset)
-                data = f.read(1) # Read 1KB chunk
+            with open(os.path.join(self.root_dir, f"{filepath}{i}.txt"), 'r') as f:
+                f.seek(currOffset)
+                data = f.read(1024)  # Read 1KB chunk
                 return gfs_pb2.RegistrationResponse(type=20, data=data)
         except FileNotFoundError:
             return gfs_pb2.RegistrationResponse(type=404)
@@ -100,7 +100,7 @@ class ChunkServer(gfs_pb2_grpc.GfsServiceServicer):
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     gfs_pb2_grpc.add_GfsServiceServicer_to_server(ChunkServer(), server)
-    server.add_insecure_port('[::]:5000')
+    server.add_insecure_port('[::]:50051')
     print(f"ChunkServer started on {os.getenv('MY_IP')}...")
     server.start()
     server.wait_for_termination()

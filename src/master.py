@@ -17,21 +17,21 @@ DB_CONFIG = {
 
 class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
     def __init__(self):
-        self.loadHeap = [] 
-        self.known_servers = [f"chunkserver_{i}:5000" for i in range(1, 4)]
+        self.loadHeap = []
+        self.known_servers = [f"chunkserver_{i}:50051" for i in range(1, 4)]
         self.writeId = 0
-        
+
         # NEW: Health Tracking
         self.server_health = {} # { "ip:port": last_heartbeat_timestamp }
         self.HEALTH_THRESHOLD = 15 # Seconds before a server is "dead"
-        
+
         for srv in self.known_servers:
             heapq.heappush(self.loadHeap, (0, srv))
             self.server_health[srv] = time.time() # Initially assume healthy
 
         # NEW: Background thread to prune dead nodes
         threading.Thread(target=self._monitor_health, daemon=True).start()
-        
+
         self._init_db()
 
     def Heartbeat(self, request, context):
@@ -40,7 +40,7 @@ class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
             if srv.split(':')[0] in peer:
                 self.server_health[srv] = time.time()
                 break
-        
+
         return gfs_pb2.Empty()
 
     def _monitor_health(self):
@@ -48,7 +48,7 @@ class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
         while True:
             now = time.time()
             alive_servers = []
-            
+
             # Check all known servers
             for srv, last_seen in self.server_health.items():
                 if now - last_seen < self.HEALTH_THRESHOLD:
@@ -62,7 +62,7 @@ class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
             for load, srv in self.loadHeap:
                 if srv in alive_servers:
                     heapq.heappush(new_heap, (load, srv))
-            
+
             self.loadHeap = new_heap
             time.sleep(5) # Run check every 5 seconds
 
@@ -74,12 +74,12 @@ class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
                 self.conn = mysql.connector.connect(**DB_CONFIG)
                 self.cursor = self.conn.cursor()
                 self.cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS files (
-                        filename VARCHAR(255) PRIMARY KEY,
-                        chunks JSON,
-                        primary_srv VARCHAR(255)
-                    )
-                """)
+                                    CREATE TABLE IF NOT EXISTS files (
+                                                                         filename VARCHAR(255) PRIMARY KEY,
+                                        chunks JSON,
+                                        primary_srv VARCHAR(255)
+                                        )
+                                    """)
                 self.conn.commit()
                 return
             except Exception as e:
@@ -112,9 +112,9 @@ class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
         # Check if file exists
         self.cursor.execute("SELECT chunks, primary_srv FROM files WHERE filename = %s", (filename,))
         row = self.cursor.fetchone()
-        
+
         if row:
-            
+
             return gfs_pb2.RegistrationResponse(
                 type=10, chunkServers=json.loads(row[0]), primary=row[1], writeId=self.writeId
             )
@@ -123,7 +123,7 @@ class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
         size = len(data) if data else 0
         chunks = []
         temp_heap = []
-        
+
         # Pick top 3 servers with lowest load
         count = 0
         while self.loadHeap and count < 3:
@@ -131,13 +131,13 @@ class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
             chunks.append(srv)
             temp_heap.append((load + size, srv))
             count += 1
-            
+
         # Restore heap
         for item in temp_heap:
             heapq.heappush(self.loadHeap, item)
 
         primary = chunks[0]
-        
+
         # Persist to MySQL
         self.cursor.execute(
             "INSERT INTO files (filename, chunks, primary_srv) VALUES (%s, %s, %s)",
@@ -152,8 +152,8 @@ class GfsMaster(gfs_pb2_grpc.GfsServiceServicer):
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     gfs_pb2_grpc.add_GfsServiceServicer_to_server(GfsMaster(), server)
-    server.add_insecure_port('[::]:5000')
-    print("GFS Master running on port 5000...")
+    server.add_insecure_port('[::]:50051')
+    print("GFS Master running on port 50051...")
     server.start()
     server.wait_for_termination()
 
